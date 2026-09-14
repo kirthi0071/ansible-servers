@@ -39,24 +39,9 @@ jobs:
           chmod 600 "$RUNNER_TEMP/ssh/bootstrap"
           echo "public_key=$(cat "$RUNNER_TEMP/ssh/bootstrap.pub")" >> "$GITHUB_OUTPUT"
 
-      - name: Bootstrap private Terraform state bucket
-        shell: bash
-        run: |
-          PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')
-          STATE_BUCKET="ansible-servers-tfstate-${PROJECT_NUMBER}"
-          if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
-            gcloud storage buckets create "gs://${STATE_BUCKET}" \
-              --project="$GCP_PROJECT_ID" \
-              --location="$GCP_REGION" \
-              --uniform-bucket-level-access \
-              --public-access-prevention
-          fi
-          gcloud storage buckets update "gs://${STATE_BUCKET}" --versioning
-          echo "TF_STATE_BUCKET=$STATE_BUCKET" >> "$GITHUB_ENV"
-
       - name: Terraform init
         working-directory: terraform
-        run: terraform init -input=false -backend-config="bucket=${TF_STATE_BUCKET}" -backend-config="prefix=ansible-servers"
+        run: terraform init -input=false
 
       - name: Terraform validate
         working-directory: terraform
