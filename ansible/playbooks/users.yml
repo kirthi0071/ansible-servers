@@ -1,0 +1,31 @@
+---
+- name: Manage standard local users on all VMs
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    managed_users:
+      - ram
+      - vicky
+      - mahesh
+    password_secret_project: "project-c98d2dac-2409-44bd-aba"
+
+  pre_tasks:
+    - name: Prepare credentials once on the Ansible controller
+      ansible.builtin.include_tasks: ../roles/users/tasks/controller_credentials.yml
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+  roles:
+    - users
+    - ssh
+
+  post_tasks:
+    - name: Verify managed users exist
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ item }}"
+      loop: "{{ managed_users }}"
+      changed_when: false
