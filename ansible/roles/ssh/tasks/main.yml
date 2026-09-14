@@ -9,51 +9,35 @@
   register: cloudimg_ssh_files
   changed_when: false
 
-- name: Enable PasswordAuthentication in cloud-init SSH configuration
-  ansible.builtin.lineinfile:
+- name: Enable password authentication in every cloud-init SSH config file
+  ansible.builtin.replace:
     path: "{{ item.path }}"
+    regexp: '^([[:space:]]*#?[[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
+    replace: '\g<1>\g<2> yes\g<5>'
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Ensure PasswordAuthentication is enabled in main sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
     regexp: '^\s*#?\s*PasswordAuthentication\s+'
     line: 'PasswordAuthentication yes'
     insertafter: EOF
-  loop: "{{ cloudimg_ssh_files.files }}"
-  loop_control:
-    label: "{{ item.path }}"
 
-- name: Enable KbdInteractiveAuthentication in cloud-init SSH configuration
+- name: Ensure KbdInteractiveAuthentication is enabled in main sshd_config
   ansible.builtin.lineinfile:
-    path: "{{ item.path }}"
+    path: /etc/ssh/sshd_config
     regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+'
     line: 'KbdInteractiveAuthentication yes'
     insertafter: EOF
-  loop: "{{ cloudimg_ssh_files.files }}"
-  loop_control:
-    label: "{{ item.path }}"
 
-- name: Enable UsePAM in cloud-init SSH configuration
+- name: Ensure UsePAM is enabled in main sshd_config
   ansible.builtin.lineinfile:
-    path: "{{ item.path }}"
+    path: /etc/ssh/sshd_config
     regexp: '^\s*#?\s*UsePAM\s+'
     line: 'UsePAM yes'
     insertafter: EOF
-  loop: "{{ cloudimg_ssh_files.files }}"
-  loop_control:
-    label: "{{ item.path }}"
-
-- name: Remove previous Ansible SSH drop-in
-  ansible.builtin.file:
-    path: /etc/ssh/sshd_config.d/00-ansible-password-auth.conf
-    state: absent
-
-- name: Configure password authentication in main sshd_config as a fallback
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*{{ item }}\s+'
-    line: '{{ item }} yes'
-    insertafter: EOF
-  loop:
-    - PasswordAuthentication
-    - KbdInteractiveAuthentication
-    - UsePAM
 
 - name: Validate SSH configuration before restart
   ansible.builtin.command: sshd -t
