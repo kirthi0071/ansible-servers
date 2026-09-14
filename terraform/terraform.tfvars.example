@@ -1,0 +1,10 @@
+project_id = "project-c98d2dac-2409-44bd-aba"
+region     = "asia-south1"
+zone       = "asia-south1-a"
+subnet_cidr = "10.0.0.0/24"
+vm_count    = 3
+
+# Set to the GitHub Actions service account used by your existing WIF provider.
+github_actions_service_account = "YOUR_GITHUB_ACTIONS_SA@project-c98d2dac-2409-44bd-aba.iam.gserviceaccount.com"
+
+# bootstrap_ssh_public_key is injected by GitHub Actions and should not be committed.
