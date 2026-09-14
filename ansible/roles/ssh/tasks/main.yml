@@ -10,11 +10,14 @@
   changed_when: false
 
 - name: Enable password authentication in cloud-init SSH configuration
-  ansible.builtin.replace:
+  ansible.builtin.lineinfile:
     path: "{{ item.path }}"
-    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
-    replace: '\g<1>\g<2> yes\g<5>'
-  loop: "{{ cloudimg_ssh_files.files }}"
+    regexp: '^\s*#?\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\s+'
+    line: '{{ item.1 }} yes'
+    insertafter: EOF
+  loop: "{{ cloudimg_ssh_files.files | product(['PasswordAuthentication', 'KbdInteractiveAuthentication', 'UsePAM']) | list }}"
+  loop_control:
+    label: "{{ item.0.path }} -> {{ item.1 }}"
 
 - name: Remove previous Ansible SSH drop-in
   ansible.builtin.file:
@@ -22,10 +25,15 @@
     state: absent
 
 - name: Configure password authentication in main sshd_config as a fallback
-  ansible.builtin.replace:
+  ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
-    replace: '\g<1>\g<2> yes\g<5>'
+    regexp: '^\s*#?\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\s+'
+    line: '{{ item }} yes'
+    insertafter: EOF
+  loop:
+    - PasswordAuthentication
+    - KbdInteractiveAuthentication
+    - UsePAM
 
 - name: Validate SSH configuration before restart
   ansible.builtin.command: sshd -t
@@ -53,5 +61,6 @@
   ansible.builtin.assert:
     that:
       - "'passwordauthentication yes' in sshd_effective_config.stdout | lower"
+      - "'kbdinteractiveauthentication yes' in sshd_effective_config.stdout | lower"
       - "'usepam yes' in sshd_effective_config.stdout | lower"
     fail_msg: "Effective SSH configuration does not have password authentication enabled."
