@@ -1,0 +1,93 @@
+name: Provision and Configure VMs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: project-c98d2dac-2409-44bd-aba
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP with existing WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --user ansible pyyaml
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Generate ephemeral bootstrap SSH key
+        id: ssh
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ssh"
+          ssh-keygen -t ed25519 -N '' -f "$RUNNER_TEMP/ssh/bootstrap" -C "github-actions-${GITHUB_RUN_ID}"
+          chmod 600 "$RUNNER_TEMP/ssh/bootstrap"
+          echo "public_key=$(cat "$RUNNER_TEMP/ssh/bootstrap.pub")" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Terraform apply
+        working-directory: terraform
+        env:
+          TF_VAR_bootstrap_ssh_public_key: ${{ steps.ssh.outputs.public_key }}
+          TF_VAR_github_actions_service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        run: terraform apply -auto-approve -input=false
+
+      - name: Build Ansible inventory
+        working-directory: ansible
+        env:
+          BOOTSTRAP_KEY: ${{ runner.temp }}/ssh/bootstrap
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, yaml
+          ips = json.loads(subprocess.check_output([
+              'terraform', '-chdir=../terraform', 'output', '-json', 'vm_public_ips'
+          ], text=True))
+          data = {
+              'all': {
+                  'hosts': {
+                      f'ansible-vm-{i+1:02d}': {'ansible_host': ip}
+                      for i, ip in enumerate(ips)
+                  },
+                  'vars': {
+                      'ansible_user': 'ansible-bootstrap',
+                      'ansible_ssh_private_key_file': os.environ['BOOTSTRAP_KEY']
+                  }
+              }
+          }
+          os.makedirs('inventory', exist_ok=True)
+          with open('inventory/generated.yml', 'w') as f:
+              yaml.safe_dump(data, f, sort_keys=False)
+          PY
+
+      - name: Run Ansible
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+        run: ansible-playbook playbooks/users.yml
