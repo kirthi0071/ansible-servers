@@ -26,9 +26,22 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - uses: hashicorp/setup-terraform@v3
 
+      - name: Bootstrap private Terraform state bucket
+        env:
+          GCP_PROJECT_ID: project-c98d2dac-2409-44bd-aba
+          GCP_REGION: asia-south1
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')
+          STATE_BUCKET="ansible-servers-tfstate-${PROJECT_NUMBER}"
+          if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+            gcloud storage buckets create "gs://${STATE_BUCKET}" --project="$GCP_PROJECT_ID" --location="$GCP_REGION" --uniform-bucket-level-access --public-access-prevention
+          fi
+          gcloud storage buckets update "gs://${STATE_BUCKET}" --versioning
+          echo "TF_STATE_BUCKET=$STATE_BUCKET" >> "$GITHUB_ENV"
+
       - name: Terraform init
         working-directory: terraform
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config="bucket=${TF_STATE_BUCKET}" -backend-config="prefix=ansible-servers"
 
       - name: Terraform validate
         working-directory: terraform
