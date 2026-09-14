@@ -1,0 +1,7 @@
+---
+managed_users:
+  - ram
+  - vicky
+  - mahesh
+
+password_secret_project: "project-c98d2dac-2409-44bd-aba"
