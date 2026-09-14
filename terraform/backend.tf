@@ -1,3 +1,6 @@
 terraform {
-  backend "gcs" {}
+  backend "gcs" {
+    bucket = "terraform-gcs-ansible"
+    prefix = "ansible-servers"
+  }
 }
