@@ -1,14 +1,30 @@
 ---
-- name: Inspect SSH configuration sources
-  ansible.builtin.shell: |
-    set -o pipefail
-    grep -RniE '^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)[[:space:]]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d 2>/dev/null || true
-  args:
-    executable: /bin/bash
-  register: ssh_auth_config
+- name: Discover SSH authentication configuration files on each VM
+  ansible.builtin.find:
+    paths:
+      - /etc/ssh/sshd_config.d
+    patterns: '*.conf'
+    file_type: file
+  register: ssh_dropin_files
   changed_when: false
 
-- name: Configure SSH password authentication in sshd_config.d
+- name: Configure password authentication in sshd_config
+  ansible.builtin.replace:
+    path: /etc/ssh/sshd_config
+    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
+    replace: '\\g<1>\\g<2> yes'
+  notify: Reload SSH
+
+- name: Remove conflicting authentication directives from SSH drop-ins
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
+    replace: '# ANSIBLE_DISABLED \\g<0>'
+  loop: "{{ ssh_dropin_files.files }}"
+  when: item.path != '/etc/ssh/sshd_config.d/00-ansible-password-auth.conf'
+  notify: Reload SSH
+
+- name: Install final SSH authentication policy
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/00-ansible-password-auth.conf
     owner: root
@@ -18,24 +34,6 @@
       PasswordAuthentication yes
       KbdInteractiveAuthentication yes
       UsePAM yes
-  notify: Reload SSH
-
-- name: Disable conflicting SSH password-auth settings
-  ansible.builtin.replace:
-    path: "{{ item }}"
-    regexp: '^\\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\\s+(no|yes)\\s*$'
-    replace: '# ANSIBLE_DISABLED \\g<0>'
-  loop:
-    - /etc/ssh/sshd_config
-  notify: Reload SSH
-
-- name: Disable conflicting drop-in password-auth settings
-  ansible.builtin.replace:
-    path: "{{ item }}"
-    regexp: '^\\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\\s+(no|yes)\\s*$'
-    replace: '# ANSIBLE_DISABLED \\g<0>'
-  loop: "{{ lookup('ansible.builtin.fileglob', '/etc/ssh/sshd_config.d/*.conf', wantlist=True) }}"
-  when: item != '/etc/ssh/sshd_config.d/00-ansible-password-auth.conf'
   notify: Reload SSH
 
 - name: Validate SSH configuration
