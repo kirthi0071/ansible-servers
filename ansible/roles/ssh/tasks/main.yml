@@ -9,15 +9,35 @@
   register: cloudimg_ssh_files
   changed_when: false
 
-- name: Enable password authentication in cloud-init SSH configuration
+- name: Enable PasswordAuthentication in cloud-init SSH configuration
   ansible.builtin.lineinfile:
     path: "{{ item.path }}"
-    regexp: '^\s*#?\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\s+'
-    line: '{{ item.1 }} yes'
+    regexp: '^\s*#?\s*PasswordAuthentication\s+'
+    line: 'PasswordAuthentication yes'
     insertafter: EOF
-  loop: "{{ cloudimg_ssh_files.files | product(['PasswordAuthentication', 'KbdInteractiveAuthentication', 'UsePAM']) | list }}"
+  loop: "{{ cloudimg_ssh_files.files }}"
   loop_control:
-    label: "{{ item.0.path }} -> {{ item.1 }}"
+    label: "{{ item.path }}"
+
+- name: Enable KbdInteractiveAuthentication in cloud-init SSH configuration
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+'
+    line: 'KbdInteractiveAuthentication yes'
+    insertafter: EOF
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Enable UsePAM in cloud-init SSH configuration
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*#?\s*UsePAM\s+'
+    line: 'UsePAM yes'
+    insertafter: EOF
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
 
 - name: Remove previous Ansible SSH drop-in
   ansible.builtin.file:
@@ -27,7 +47,7 @@
 - name: Configure password authentication in main sshd_config as a fallback
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\s+'
+    regexp: '^\s*#?\s*{{ item }}\s+'
     line: '{{ item }} yes'
     insertafter: EOF
   loop:
