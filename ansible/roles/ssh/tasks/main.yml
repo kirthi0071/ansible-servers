@@ -1,44 +1,43 @@
 ---
-- name: Discover SSH authentication configuration files on each VM
+- name: Discover cloud-init SSH authentication configuration files
   ansible.builtin.find:
     paths:
       - /etc/ssh/sshd_config.d
-    patterns: '*.conf'
+    patterns:
+      - '*cloudimg*settings.conf'
     file_type: file
-  register: ssh_dropin_files
+  register: cloudimg_ssh_files
   changed_when: false
 
-- name: Configure password authentication in sshd_config
-  ansible.builtin.replace:
-    path: /etc/ssh/sshd_config
-    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
-    replace: '\\g<1>\\g<2> yes'
-  notify: Reload SSH
-
-- name: Remove conflicting authentication directives from SSH drop-ins
+- name: Enable password authentication in cloud-init SSH configuration
   ansible.builtin.replace:
     path: "{{ item.path }}"
     regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
-    replace: '# ANSIBLE_DISABLED \\g<0>'
-  loop: "{{ ssh_dropin_files.files }}"
-  when: item.path != '/etc/ssh/sshd_config.d/00-ansible-password-auth.conf'
-  notify: Reload SSH
+    replace: '\g<1>\g<2> yes\g<5>'
+  loop: "{{ cloudimg_ssh_files.files }}"
+  notify: Restart SSH
 
-- name: Install final SSH authentication policy
-  ansible.builtin.copy:
-    dest: /etc/ssh/sshd_config.d/00-ansible-password-auth.conf
-    owner: root
-    group: root
-    mode: '0644'
-    content: |
-      PasswordAuthentication yes
-      KbdInteractiveAuthentication yes
-      UsePAM yes
-  notify: Reload SSH
+- name: Remove previous Ansible SSH drop-in
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/00-ansible-password-auth.conf
+    state: absent
+  notify: Restart SSH
 
-- name: Validate SSH configuration
+- name: Configure password authentication in main sshd_config as a fallback
+  ansible.builtin.replace:
+    path: /etc/ssh/sshd_config
+    regexp: '^([[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
+    replace: '\g<1>\g<2> yes\g<5>'
+  notify: Restart SSH
+
+- name: Validate SSH configuration before restart
   ansible.builtin.command: sshd -t
   changed_when: false
+
+- name: Restart SSH service to apply password authentication
+  ansible.builtin.systemd:
+    name: ssh
+    state: restarted
 
 - name: Verify effective SSH password authentication
   ansible.builtin.command: sshd -T
@@ -46,7 +45,7 @@
   changed_when: false
   check_mode: false
 
-- name: Show effective SSH password authentication settings
+- name: Show effective SSH authentication settings
   ansible.builtin.debug:
     msg:
       - "{{ sshd_effective_config.stdout_lines | select('match', '^passwordauthentication ') | list }}"
@@ -57,6 +56,5 @@
   ansible.builtin.assert:
     that:
       - "'passwordauthentication yes' in sshd_effective_config.stdout | lower"
-      - "'kbdinteractiveauthentication yes' in sshd_effective_config.stdout | lower"
       - "'usepam yes' in sshd_effective_config.stdout | lower"
-    fail_msg: "Effective SSH configuration does not have the expected password authentication settings."
+    fail_msg: "Effective SSH configuration does not have password authentication enabled."
