@@ -9,11 +9,39 @@
   register: cloudimg_ssh_files
   changed_when: false
 
-- name: Enable password authentication in every cloud-init SSH config file
-  ansible.builtin.replace:
+- name: Show cloud-init SSH configuration before changes
+  ansible.builtin.shell: "grep -nE '^[[:space:]]*#?[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)[[:space:]]+' {{ item.path }} || true"
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  changed_when: false
+
+- name: Set password authentication directives in cloud-init SSH config files
+  ansible.builtin.lineinfile:
     path: "{{ item.path }}"
-    regexp: '^([[:space:]]*#?[[:space:]]*)(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)([[:space:]]+)(yes|no)([[:space:]]*)$'
-    replace: '\g<1>\g<2> yes\g<5>'
+    regexp: '^\s*#?\s*PasswordAuthentication\s+.*$'
+    line: 'PasswordAuthentication yes'
+    insertafter: EOF
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Set keyboard-interactive authentication directives in cloud-init SSH config files
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+.*$'
+    line: 'KbdInteractiveAuthentication yes'
+    insertafter: EOF
+  loop: "{{ cloudimg_ssh_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Set PAM usage directives in cloud-init SSH config files
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*#?\s*UsePAM\s+.*$'
+    line: 'UsePAM yes'
+    insertafter: EOF
   loop: "{{ cloudimg_ssh_files.files }}"
   loop_control:
     label: "{{ item.path }}"
@@ -21,23 +49,29 @@
 - name: Ensure PasswordAuthentication is enabled in main sshd_config
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*PasswordAuthentication\s+'
+    regexp: '^\s*#?\s*PasswordAuthentication\s+.*$'
     line: 'PasswordAuthentication yes'
     insertafter: EOF
 
 - name: Ensure KbdInteractiveAuthentication is enabled in main sshd_config
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+'
+    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+.*$'
     line: 'KbdInteractiveAuthentication yes'
     insertafter: EOF
 
 - name: Ensure UsePAM is enabled in main sshd_config
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*UsePAM\s+'
+    regexp: '^\s*#?\s*UsePAM\s+.*$'
     line: 'UsePAM yes'
     insertafter: EOF
+
+- name: Ensure no SSH configuration forces public-key-only authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*#?\s*AuthenticationMethods\s+.*$'
+    state: absent
 
 - name: Validate SSH configuration before restart
   ansible.builtin.command: sshd -t
@@ -60,6 +94,7 @@
       - "{{ sshd_effective_config.stdout_lines | select('match', '^passwordauthentication ') | list }}"
       - "{{ sshd_effective_config.stdout_lines | select('match', '^kbdinteractiveauthentication ') | list }}"
       - "{{ sshd_effective_config.stdout_lines | select('match', '^usepam ') | list }}"
+      - "{{ sshd_effective_config.stdout_lines | select('match', '^authenticationmethods ') | list }}"
 
 - name: Assert password authentication is enabled
   ansible.builtin.assert:
