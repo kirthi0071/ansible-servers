@@ -1,0 +1,20 @@
+---
+- name: Enable SSH password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*#?\s*PasswordAuthentication\s+'
+    line: 'PasswordAuthentication yes'
+    backup: true
+  notify: Reload SSH
+
+- name: Disable keyboard-interactive authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+'
+    line: 'KbdInteractiveAuthentication no'
+    backup: true
+  notify: Reload SSH
+
+- name: Validate SSH configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false
