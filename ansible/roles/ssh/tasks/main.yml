@@ -1,20 +1,28 @@
 ---
-- name: Enable SSH password authentication
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*PasswordAuthentication\s+'
-    line: 'PasswordAuthentication yes'
-    backup: true
-  notify: Reload SSH
-
-- name: Disable keyboard-interactive authentication
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^\s*#?\s*KbdInteractiveAuthentication\s+'
-    line: 'KbdInteractiveAuthentication no'
-    backup: true
+- name: Configure SSH password authentication override
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-ansible-password-auth.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      PasswordAuthentication yes
+      KbdInteractiveAuthentication no
   notify: Reload SSH
 
 - name: Validate SSH configuration
   ansible.builtin.command: sshd -t
   changed_when: false
+
+- name: Verify effective SSH password authentication
+  ansible.builtin.command: sshd -T
+  register: sshd_effective_config
+  changed_when: false
+  check_mode: false
+
+- name: Assert password authentication is enabled
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication yes' in sshd_effective_config.stdout | lower"
+      - "'kbdinteractiveauthentication no' in sshd_effective_config.stdout | lower"
+    fail_msg: "Effective SSH configuration does not have the expected password authentication settings."
