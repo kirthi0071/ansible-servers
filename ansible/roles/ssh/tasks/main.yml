@@ -1,11 +1,10 @@
 ---
-- name: Configure SSH password authentication override
-  ansible.builtin.copy:
-    dest: /etc/ssh/sshd_config.d/99-ansible-password-auth.conf
-    owner: root
-    group: root
-    mode: '0644'
-    content: |
+- name: Configure SSH password authentication in final sshd config
+  ansible.builtin.blockinfile:
+    path: /etc/ssh/sshd_config
+    marker: "# {mark} ANSIBLE MANAGED PASSWORD AUTH"
+    insertafter: EOF
+    block: |
       PasswordAuthentication yes
       KbdInteractiveAuthentication no
   notify: Reload SSH
