@@ -1,13 +1,41 @@
 ---
-- name: Configure SSH password authentication in final sshd config
-  ansible.builtin.blockinfile:
-    path: /etc/ssh/sshd_config
-    marker: "# {mark} ANSIBLE MANAGED PASSWORD AUTH"
-    insertafter: EOF
-    block: |
+- name: Inspect SSH configuration sources
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -RniE '^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)[[:space:]]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d 2>/dev/null || true
+  args:
+    executable: /bin/bash
+  register: ssh_auth_config
+  changed_when: false
+
+- name: Configure SSH password authentication in sshd_config.d
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-ansible-password-auth.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
       PasswordAuthentication yes
-      KbdInteractiveAuthentication no
+      KbdInteractiveAuthentication yes
       UsePAM yes
+  notify: Reload SSH
+
+- name: Disable conflicting SSH password-auth settings
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: '^\\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\\s+(no|yes)\\s*$'
+    replace: '# ANSIBLE_DISABLED \\g<0>'
+  loop:
+    - /etc/ssh/sshd_config
+  notify: Reload SSH
+
+- name: Disable conflicting drop-in password-auth settings
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: '^\\s*(PasswordAuthentication|KbdInteractiveAuthentication|UsePAM)\\s+(no|yes)\\s*$'
+    replace: '# ANSIBLE_DISABLED \\g<0>'
+  loop: "{{ lookup('ansible.builtin.fileglob', '/etc/ssh/sshd_config.d/*.conf', wantlist=True) }}"
+  when: item != '/etc/ssh/sshd_config.d/00-ansible-password-auth.conf'
   notify: Reload SSH
 
 - name: Validate SSH configuration
@@ -31,6 +59,6 @@
   ansible.builtin.assert:
     that:
       - "'passwordauthentication yes' in sshd_effective_config.stdout | lower"
-      - "'kbdinteractiveauthentication no' in sshd_effective_config.stdout | lower"
+      - "'kbdinteractiveauthentication yes' in sshd_effective_config.stdout | lower"
       - "'usepam yes' in sshd_effective_config.stdout | lower"
     fail_msg: "Effective SSH configuration does not have the expected password authentication settings."
